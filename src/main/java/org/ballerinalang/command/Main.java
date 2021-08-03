@@ -122,7 +122,14 @@ public class Main {
                 return Optional.of(defaultCmd);
             }
 
-            return Optional.of(parsedCommands.get(parsedCommands.size() - 1).getCommand());
+            if (parsedCommands.size()==1){
+                return Optional.of(parsedCommands.get(0).getCommand());
+            }
+
+            else {
+                throw ErrorUtil.createCommandException("command is not recognized");
+            }
+
         } catch (CommandException e) {
             ErrorUtil.printLauncherException(e, errStream);
             Runtime.getRuntime().exit(1);
