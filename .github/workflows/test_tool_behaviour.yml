@@ -1,0 +1,128 @@
+name: Simulate Update Tool Behavior
+
+on:
+  workflow_dispatch:
+    inputs:
+      activeDistribution:
+        description: 'Active distribution while testing'
+        required: true
+      activeTool:
+        description: 'Active tool version at the beginning'
+        required: true
+      testOnDev:
+        description: 'Test on dev branch'
+        required: false
+        default: false
+      inputCommand:
+        description: 'Input command to be tested'
+        required: false
+        default: 'bal dist list'
+
+
+jobs:
+  ballerina-update-tool-test:
+    name: Simulate Ballerina Update Tool Behaviour
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v2
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
+      - name: Set env variables
+        run: |
+          echo "activeDistribution=${{ github.event.inputs.activeDistribution }}" >> $GITHUB_ENV
+          echo "activeTool=${{ github.event.inputs.activeTool }}" >> $GITHUB_ENV
+          if [ "${{ github.event.inputs.testOnDev }}" = "true" ]; then
+            echo "env=dist-dev.ballerina.io" >> $GITHUB_ENV;
+            echo "BALLERINA_DEV_UPDATE=true" >> $GITHUB_ENV;
+          else
+            echo "env=dist.ballerina.io" >> $GITHUB_ENV
+          fi
+
+      - name: Install unzip on Linux/macOS
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        run: sudo apt-get update && sudo apt-get install -y unzip
+
+      - name: Download Ballerina
+        run: |
+          $url = "https://$env/downloads/$activeDistribution/ballerina-$activeDistribution-swan-lake.zip"
+          if (${{ matrix.os }} == 'windows-latest') {
+            Invoke-WebRequest -Uri $url -OutFile "ballerina-$activeDistribution-swan-lake.zip"
+          } else {
+            wget $url
+          }
+
+      - name: Unzip Ballerina
+        run: |
+          if (${{ matrix.os }} == 'windows-latest') {
+            Expand-Archive -Path "ballerina-$activeDistribution-swan-lake.zip" -DestinationPath "."
+          } else {
+            unzip "ballerina-$activeDistribution-swan-lake.zip"
+          }
+        env:
+          JAVA_HOME: /usr/lib/jvm/default-jvm
+          JAVA_OPTS: -DBALLERINA_DEV_COMPILE_BALLERINA_ORG=true
+
+      - name: Download Update Tool
+        run: |
+          $updateToolUrl = "https://github.com/ballerina-platform/ballerina-update-tool/releases/download/v$activeTool/ballerina-command-$activeTool.zip"
+          if (${{ matrix.os }} == 'windows-latest') {
+            Invoke-WebRequest -Uri $updateToolUrl -OutFile "ballerina-command-$activeTool.zip"
+          } else {
+            wget $updateToolUrl
+          }
+
+      - name: Unzip Update Tool
+        run: |
+          if (${{ matrix.os }} == 'windows-latest') {
+            Expand-Archive -Path "ballerina-command-$activeTool.zip" -DestinationPath "."
+          } else {
+            unzip "ballerina-command-$activeTool.zip"
+          }
+
+      - name: Replace existing lib and bin directories
+        run: |
+          if (${{ matrix.os }} == 'windows-latest') {
+            Remove-Item -Recurse -Force "ballerina-$activeDistribution-swan-lake\lib"
+            Remove-Item -Recurse -Force "ballerina-$activeDistribution-swan-lake\bin"
+            Move-Item "ballerina-command-$activeTool\lib" "ballerina-$activeDistribution-swan-lake\"
+            Move-Item "ballerina-command-$activeTool\bin" "ballerina-$activeDistribution-swan-lake\"
+          } else {
+            rm -rf "ballerina-$activeDistribution-swan-lake/lib"
+            rm -rf "ballerina-$activeDistribution-swan-lake/bin"
+            mv "ballerina-command-$activeTool/lib" "ballerina-$activeDistribution-swan-lake/"
+            mv "ballerina-command-$activeTool/bin" "ballerina-$activeDistribution-swan-lake/"
+          }
+
+      - name: Set Ballerina path variable
+        run: |
+          if (${{ matrix.os }} == 'windows-latest') {
+            echo "setx PATH \"%PATH%;C:\\path\\to\\ballerina-update-tool\\ballerina-update-tool\\ballerina-$activeDistribution-swan-lake\\bin\"" >> $GITHUB_ENV
+            refreshenv
+          } else {
+            echo "PATH=$PATH:/home/runner/work/ballerina-update-tool/ballerina-update-tool/ballerina-$activeDistribution-swan-lake/bin" >> $GITHUB_ENV
+          }
+
+      - name: Run `bal -v`
+        run: bal -v
+
+      - name: Run `bal dist list`
+        run: bal dist list
+
+      - name: Run input command
+        run: ${{ github.event.inputs.inputCommand }}
+
+      - name: Run `bal -v` after command execution
+        run: bal -v
+
+      - name: Run `bal dist list` after command execution
+        run: bal dist list
+
